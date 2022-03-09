@@ -20,6 +20,13 @@ set -eu
 declare HASH_BINARY="sha256sum"
 declare CHECKSUM_FILE="SHA256SUMS"
 declare -i VERIFY_PERCENTAGE=100
+declare STATUS_ONLY="no"
+declare QUIET="no"
+
+declare C_WHITE=$(printf "\033[1m")
+declare C_GREEN=$(printf "\033[1;32m")
+declare C_RED=$(printf "\033[1;31m")
+declare C_END=$(printf "\033[0m")
 
 function _help {
     cat << EOF
@@ -36,15 +43,26 @@ Options:
   -p  Percentage of checksum files to process. E.g. "5" will mean that about 5% of the available
       checksum files will be processed. The file with the oldest check timestamp will be processed
       first. This means that it would take 20 days to go through all files. Default is $VERIFY_PERCENTAGE.
+  -q  Quiet mode. Only print file names that had errors.
+  -s  Show status only. Scans all checksum files and lists check dates and failure counts.
 EOF
     exit 1
 }
 
 function get_check_metadata {
-    declare metadata;
-    metadata="$(sed -n -E '1 s/^# last checked ([0-9]+-[0-9]+-[0-9]+_[0-9]+:[0-9]+:[0-9]+) with ([0-9]+) failures/\1,\2/p' "$1" 2>/dev/null)" || return 1
+    declare checksumfile="$1"
+    declare timestamp_placeholder="${2:-0000-00-00_00:00:00}"
+    declare metadata
+    metadata="$(sed -n -E '1 s/^# last checked ([0-9]+-[0-9]+-[0-9]+_[0-9]+:[0-9]+:[0-9]+) with ([0-9]+) failures/\1,\2/p' "$checksumfile" 2>/dev/null)"
+
+    if [ $? -ne 0 ]; then
+        echo -e "${C_RED}Can't read checksum file${C_END} $checksumfile"
+        return 1
+    fi
+
+    # Return value format is: timestamp,failureCount
     if [ -z "$metadata" ]; then
-        printf "0000-00-00_00:00:00,0"
+        printf "$timestamp_placeholder,0"
     else
         printf "$metadata"
     fi
@@ -55,10 +73,11 @@ function set_check_metadata {
     declare checksum_file="$1"
     declare -i failures="$2"
     declare old_metadata; old_metadata=$(get_check_metadata "$checksum_file") || return 1
-    declare new_metadata="# last checked $(date +"%Y-%m-%d_%H:%M:%S") with $failures failures"
+    # Timestamp is in UTC
+    declare new_metadata="# last checked $(date -u +"%Y-%m-%d_%H:%M:%S") with $failures failures"
 
-    # Metadata doesn't exist yet
     if [[ ${old_metadata:0:4} == "0000" ]]; then
+        # Metadata doesn't exist yet, so insert it as the first line.
         sed -i'' "1 i $new_metadata" "$checksum_file"
     else
         sed -i'' "1 s/^# last checked.*/$new_metadata/" "$checksum_file"
@@ -66,14 +85,23 @@ function set_check_metadata {
 }
 
 function list_checksumfiles_ordered {
+    # Finds the checksum files and skips those that are basically empty.
     readarray -d '' files < <(find "$1" -type f -size +32c -name "$2" -print0)
+
     # Sort the files by last check time. Oldest first.
+    # Avoids plain file names at this point for simplicity.
     readarray -d '' sorted_indices < <(
       ( for i in "${!files[@]}"; do
-            metadata="$(get_check_metadata "${files[$i]}")" || { echo "Can't read checksum file '${files[$i]}'" >&2; continue; }
+            metadata="$(get_check_metadata "${files[$i]}")" || {
+                [ "$QUIET" == "yes" ] && readlink -f "${files[$i]}" >&2
+                continue
+            }
             printf "%s,%s\0" "$i" "$metadata"
         done ) | sort -t ',' -k 2 -z | cut -d ',' -f 1 -z
     )
+
+    # First element is for passing the error count which is the amount of files that couldn't be parsed.
+    printf "%s\0" "$((${#files[@]} - ${#sorted_indices[@]}))"
 
     for i in "${sorted_indices[@]}"; do
         printf "%s\0" "${files[$i]}"
@@ -87,53 +115,75 @@ function checksumfile_verify {
     declare main_dir="$4"
     # Note: checksum files that can't be accessed will be left out from the check
     readarray -d '' checksum_files < <(list_checksumfiles_ordered "$main_dir" "$checksum_file")
-    declare -i errors_total=0
+    declare -i errors_total=${checksum_files[0]}
+    unset 'checksum_files[0]'
     declare -i checksums_checked=0
-    declare -i checksums_total="$(printf "%s\0" "${checksum_files[@]}" | xargs -n1 -r -0 grep '^[^#]' | wc -l)"
-    echo -e "\nProcessing directory \033[1m${main_dir}\033[0m containing \033[1;32m${#checksum_files[@]}\033[0m available checksum files:"
+    declare -i checksums_total="$(printf "%s\0" "${checksum_files[@]}" | xargs -n1 -r -0 grep -s '^[^#]' | wc -l)"
+
+    echo -e "\nProcessing directory ${C_WHITE}${main_dir}${C_END} containing ${C_GREEN}${#checksum_files[@]}${C_END} available checksum files:"
 
     for f in "${checksum_files[@]}"; do
         declare -i checksum_errors=0
 
         declare workdir=$(dirname "$f")
         pushd -- "$workdir" &>/dev/null
-        echo -e "  \033[1m${workdir}\033[0m:"
+        echo -e "  ${C_WHITE}${workdir}${C_END}:"
 
-        # Go through one by one for better view on progress and error counting
-        while IFS='' read -r line; do
-            (
-              set -o pipefail
-              # Apply some colors too depending on the output
-              "$hash_binary" --strict -c 2>/dev/null <<<"$line" | \
-              sed -e 's/^/    /' \
-                  -e "s/OK/$(printf "\033[1;32mOK\033[0m/")" \
-                  -e "s/FAILED/$(printf "\033[1;31mFAILED\033[0m/")"
-            ) || ((checksum_errors += 1))
-            ((checksums_checked += 1))
+        if [ "$STATUS_ONLY" = "yes" ]; then
+            readarray -t -d ',' metadata <<<$(get_check_metadata "$checksum_file" "never") || continue
+            echo "    Last checked: ${metadata[0]}"
+            if [ "${metadata[0]}" != "never" ]; then
+                echo -n "    Errors: ${metadata[1]}" | \
+                    sed -E -e "s/ ([^0][0-9]*)$/ ${C_RED}\1${C_END}/" -e "s/ 0$/ ${C_GREEN}0${C_END}/"
 
-        # Trim out comment lines
-        done < <(grep '^[^#]' "$checksum_file")
+                checksum_errors=$(($checksum_errors + ${metadata[1]}))
+            fi
 
-        set_check_metadata "$checksum_file" "$checksum_errors" || ((errors_total += 1))
-        errors_total=$((errors_total + $checksum_errors))
+        else
+            # Go through one by one for better view on progress and error counting
+            while IFS='' read -r line; do
+                (
+                  set -o pipefail
+                  "$hash_binary" --strict -c 2>/dev/null <<<"$line" | sed -e 's/^/    /' -e "s/OK$/${C_GREEN}OK${C_END}/" -e "s/FAILED/${C_RED}FAILED${C_END}/"
+                ) || {
+                    [ "$QUIET" == "yes" ] && echo "$(sed -E -e 's/^[^ ]+ .//' <<<$line | xargs readlink -f)" >&2
+                    ((checksum_errors += 1))
+                }
+                ((checksums_checked += 1))
+
+            # Trim out comment lines
+            done < <(grep '^[^#]' "$checksum_file")
+
+            set_check_metadata "$checksum_file" "$checksum_errors" || ((errors_total += 1))
+        fi
+
+        errors_total=$((errors_total + checksum_errors))
         popd &>/dev/null
 
-        if [ $(( 100 * $checksums_checked / $checksums_total )) -ge $verify_percentage ]; then
+        if [ $(( 100 * checksums_checked / checksums_total )) -ge $verify_percentage ]; then
             echo -ne "\nReached target percentage ${verify_percentage}% of checked checksums."
             break
         fi
     done
 
-    echo -e "\n\033[1m${checksums_checked}/${checksums_total}\033[0m checksums checked. \033[1m${errors_total}\033[0m errors found!"
-    return $errors_total
+    echo -ne "\n${C_WHITE}${checksums_checked}/${checksums_total}${C_END} checksums checked. "
+    if [ $errors_total -gt 0 ]; then
+        echo -e "${C_RED}${errors_total}${C_END} errors found!"
+        return 2
+    else
+        echo -e "${C_GREEN}${errors_total}${C_END} errors found!"
+        return 0
+    fi
 }
 
 
-while getopts "hb:n:p:" option; do
+while getopts "sqhb:n:p:" option; do
     case $option in
         b) HASH_BINARY="$OPTARG";;
         n) CHECKSUM_FILE="$OPTARG";;
         p) VERIFY_PERCENTAGE="$OPTARG";;
+        s) STATUS_ONLY="yes";;
+        q) QUIET="yes";;
         h) _help;;
         \?) _help;;
     esac
@@ -149,5 +199,9 @@ if [ -z "$CHECKSUM_FILE" ] || [ -z "${1:-}" ]; then
     _help
 fi
 
-# Exit code will contain the total number of errors
-checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "$1"
+# Exit code 1 is for generic runtime error and 2 means errors in checksums were found.
+if [ "$QUIET" == "no" ]; then
+    checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "$1"
+else
+    checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "$1" 2>&1 >/dev/null
+fi
