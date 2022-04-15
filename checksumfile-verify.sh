@@ -146,7 +146,8 @@ function checksumfile_verify {
                   set -o pipefail
                   "$hash_binary" --strict -c 2>/dev/null <<<"$line" | sed -e 's/^/    /' -e "s/OK$/${C_GREEN}OK${C_END}/" -e "s/FAILED/${C_RED}FAILED${C_END}/"
                 ) || {
-                    [ "$QUIET" == "yes" ] && echo "$(sed -E -e 's/^[^ ]+ .//' <<<$line | xargs readlink -f)" >&2
+                    # First the escaped special chars have to be expanded for readlink.
+                    [ "$QUIET" == "yes" ] && echo -e "$(sed -E -e 's/^[^ ]+ .//' -e 's/\n/\0/' <<<$line | xargs -0 readlink -f)" >&2
                     ((checksum_errors += 1))
                 }
                 ((checksums_checked += 1))
