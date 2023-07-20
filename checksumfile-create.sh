@@ -24,7 +24,7 @@ shopt -s lastpipe
 # Default values
 declare HASH_BINARY="sha256sum"
 declare CHECKSUM_FILE="SHA256SUMS"
-declare -i DIR_DEPTH=1
+declare -i DIR_DEPTH=0
 declare -i UPDATE_EXISTING=0
 # Parameters for filtering find in find-command. For example, to only include files that are over 50kiB use: -f '-size +50k'
 declare FIND_PARAMS=""
@@ -41,7 +41,7 @@ function _help {
 Usage: $0 [-b hash_binary_name] [-d subdir_depth] [-f "find_params"] [-n checksum_file_name] [-u] directory_name
 
 Recursively creates checksum files using $HASH_BINARY. Option -d will define the subdirectory level
-on which the files are created. The checksum file will contain checksums of files in and under that directory.
+on which the files are created (default is 0 which means current directory). The checksum file will contain checksums of files in and under that directory.
 Integrity verification can be done directly with sha256sum or by using $(echo -e "${C_WHITE}checksumfile-verify.sh${C_END}").
 
 Options:

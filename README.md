@@ -10,15 +10,23 @@ Basically, these scripts form an extension for existing checksumming tools such 
 The main purpose is to make operating on directories simple and to provide functionality for periodic scrubbing/checking.
 It's also possible add or delete files from the checksum file seamlessly.
 
-The default settings are aimed for files that are divided into subdirectories (`-d 1`).
 Use `-h` to see the details of available configuration options.
 
 ### Examples
 #### Default parameters, on a photo album
 
-Create or update the checksum file:
+Create a checksum file for the selected directory:
 ```
-$ ./checksumfile-create.sh -u Photos/
+./checksumfile-create.sh Photos/
+  Photos:
+    ./2018/birthday/abc.jpg
+    ./2018/birthday/def.jpg
+```
+
+For more fine-grained management (recommended), create checksum files for immediate subdirectories.
+`-u` allows updating existing checksum files. Otherwise the directory is skipped.
+```
+$ ./checksumfile-create.sh -d 1 -u Photos/
   Photos/2018:
     ./birthday/abc.jpg
     ./birthday/def.jpg
@@ -34,15 +42,7 @@ Completed without errors.
 
 Ignore txt-files:
 ```
-$ ./checksumfile-create.sh -u -f '-not -name "*.txt"' Photos/
-```
-
-Create the file for the selected directory instead of immediate subdirectories:
-```
-./checksumfile-create.sh -d 0 Photos/
-  Photos:
-    ./2018/birthday/abc.jpg
-    ./2018/birthday/def.jpg
+$ ./checksumfile-create.sh -f '-not -name "*.txt"' Photos/
 ```
 
 Verify that they haven't changed:
