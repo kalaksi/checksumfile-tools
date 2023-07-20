@@ -196,13 +196,13 @@ if ! hash "$HASH_BINARY" &>/dev/null; then
     exit 1
 fi
 
-if [ -z "$CHECKSUM_FILE" ] || [ -z "${1:-}" ]; then
+if [ -z "$CHECKSUM_FILE" ]; then
     _help
 fi
 
 # Exit code 1 is for generic runtime error and 2 means errors in checksums were found.
 if [ "$QUIET" == "no" ]; then
-    checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "$1"
+    checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "${1:-.}"
 else
-    checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "$1" 2>&1 >/dev/null
+    checksumfile_verify "$HASH_BINARY" "$CHECKSUM_FILE" "$VERIFY_PERCENTAGE" "${1:-.}" 2>&1 >/dev/null
 fi
