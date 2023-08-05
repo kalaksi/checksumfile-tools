@@ -166,14 +166,14 @@ if ! hash "$HASH_BINARY" &>/dev/null; then
     exit 1
 fi
 
-if [ -z "$CHECKSUM_FILE" ] || [ ! $DIR_DEPTH -ge 0 ] || [ -z "${1:-}" ]; then
+if [ -z "$CHECKSUM_FILE" ] || [ ! $DIR_DEPTH -ge 0 ]; then
     _help
 fi
 
 
 if [ "$QUIET" == "no" ]; then
     # Exit code 1 is for critical runtime errors and 2 for non-critical errors with checksum files.
-    checksumfile_create "$HASH_BINARY" "$CHECKSUM_FILE" "$DIR_DEPTH" "$FIND_PARAMS" "$UPDATE_EXISTING" "$1"
+    checksumfile_create "$HASH_BINARY" "$CHECKSUM_FILE" "$DIR_DEPTH" "$FIND_PARAMS" "$UPDATE_EXISTING" "${1:-.}"
 else
-    checksumfile_create "$HASH_BINARY" "$CHECKSUM_FILE" "$DIR_DEPTH" "$FIND_PARAMS" "$UPDATE_EXISTING" "$1" 2>&1 >/dev/null
+    checksumfile_create "$HASH_BINARY" "$CHECKSUM_FILE" "$DIR_DEPTH" "$FIND_PARAMS" "$UPDATE_EXISTING" "${1:-.}" 2>&1 >/dev/null
 fi
