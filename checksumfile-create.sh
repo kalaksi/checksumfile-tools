@@ -47,7 +47,7 @@ Integrity verification can be done directly with sha256sum or by using $(echo -e
 Options:
   -f  Parameters for 'find' for file filtering. This dictates which files will be included in the checksum generation.
       Default is '$FIND_PARAMS'. Remember to use quotes.
-  -d  Subdirectory level where to create the checksum files. 0 means the main directory set by 'directory_name'. Default is 1.
+  -d  Subdirectory level where to create the checksum files. 0 means the main directory set by 'directory_name'. Default is $DIR_DEPTH.
   -b  Hash binary name such as md5sum, sha1sum or sha256sum. Default is $HASH_BINARY.
   -n  File name that will contain the checksum information. Default is $CHECKSUM_FILE.
   -q  Quiet mode. Only print file names that couldn't be created or updated.
